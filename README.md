@@ -1,141 +1,375 @@
-# OTPless Headless Auth Demo (Android · Kotlin · Jetpack Compose)
+# OTPless Android Headless SDK — Demo App
 
-A single-screen reference/test app showing a complete integration of the
-**OTPless Android Headless SDK**
-(`io.github.otpless-tech:otpless-headless-sdk:0.9.0` — the current SDK, not
-the deprecated WebView SDK) in a Kotlin + Jetpack Compose app.
+A reference Android application demonstrating how to integrate the **OTPless Android Headless SDK** into a Kotlin + Jetpack Compose application.
 
-It exercises every major headless flow — **SNA (Silent Network
-Authentication)**, **SMS OTP**, **WhatsApp OTP**, **SNA → OTP fallback**, and
-**OTP verification** — and prints every SDK callback event to an on-screen,
-shareable debug log so you can see exactly what the SDK is doing at each
-step.
+This demo covers the complete phone authentication journey, including:
 
-Official docs: https://otpless.com/docs/frontend-sdks/app-sdks/android/new/headless/intro
+- **Silent Network Authentication (SNA)**
+- **SMS OTP**
+- **WhatsApp OTP**
+- **SNA → OTP fallback**
+- **Automatic OTP reading and verification**
+- **Manual OTP verification**
+- **Authentication status and SDK event logging**
 
-> This README explains **how the integration is built, function by
-> function**, so you can use this app as a working reference while wiring
-> OTPless into your own app. If you just want to run the demo, jump to
-> [Quick start](#quick-start).
+The app includes an on-screen event log that shows the SDK events generated during authentication. Sensitive values such as OTPs and tokens are automatically redacted from the log.
+
+> **SDK:** `io.github.otpless-tech:otpless-headless-sdk:0.9.0`  
+> **Platform:** Android  
+> **Language:** Kotlin  
+> **UI:** Jetpack Compose
+
+Official documentation: https://otpless.com/docs/frontend-sdks/app-sdks/android/new/headless/intro
 
 ---
 
 ## Table of contents
 
-1. [What this app demonstrates](#what-this-app-demonstrates)
-2. [Project layout](#project-layout)
-3. [OTPless dashboard setup](#otpless-dashboard-setup)
-4. [Quick start](#quick-start)
-5. [Step-by-step integration walkthrough](#step-by-step-integration-walkthrough)
+1. [Overview](#overview)
+2. [Authentication flows](#authentication-flows)
+3. [Prerequisites](#prerequisites)
+4. [OTPless dashboard setup](#otpless-dashboard-setup)
+5. [Run the demo](#run-the-demo)
+6. [Test the authentication flows](#test-the-authentication-flows)
+7. [Understanding the demo screen](#understanding-the-demo-screen)
+8. [Integrating OTPless into your Android app](#integrating-otpless-into-your-android-app)
    1. [Add the SDK dependency](#1-add-the-sdk-dependency)
-   2. [Manifest & network security config](#2-manifest--network-security-config)
-   3. [Initialize the SDK](#3-initialize-the-sdk)
-   4. [Build a request](#4-build-a-request)
-   5. [Send the request](#5-send-the-request)
-   6. [Handle the response callback](#6-handle-the-response-callback)
-   7. [Verify an OTP](#7-verify-an-otp)
-   8. [The UI layer (Compose)](#8-the-ui-layer-compose)
-6. [Error handling](#error-handling)
-7. [Security notes](#security-notes)
-8. [Testing each flow](#testing-each-flow)
-9. [Where to add dashboard screenshots](#where-to-add-dashboard-screenshots)
-10. [Build](#build)
+   2. [Configure the App ID](#2-configure-the-app-id)
+   3. [Configure Android network security](#3-configure-android-network-security)
+   4. [Initialize the SDK](#4-initialize-the-sdk)
+   5. [Create an authentication request](#5-create-an-authentication-request)
+   6. [Start the request](#6-start-the-request)
+   7. [Handle SDK responses](#7-handle-sdk-responses)
+   8. [Verify an OTP](#8-verify-an-otp)
+   9. [Connect the SDK to your UI](#9-connect-the-sdk-to-your-ui)
+9. [Error handling](#error-handling)
+10. [Troubleshooting](#troubleshooting)
+11. [Security considerations](#security-considerations)
+12. [Project structure](#project-structure)
+13. [Dashboard screenshots](#dashboard-screenshots)
+14. [Build](#build)
 
 ---
 
-## What this app demonstrates
+## Overview
 
-| Flow | What happens |
+The demo is a single-screen application that provides a simple way to configure and test the OTPless Headless SDK.
+
+At a high level, the integration follows this sequence:
+
+```text
+┌──────────────────────┐
+│ Initialize OTPless  │
+└──────────┬───────────┘
+           │
+           ▼
+     SDK_READY event
+           │
+           ▼
+┌──────────────────────┐
+│ Select auth flow     │
+│                      │
+│ • SNA                │
+│ • SMS OTP            │
+│ • WhatsApp OTP       │
+└──────────┬───────────┘
+           │
+           ▼
+   SDK response events
+           │
+           ├───────────────┐
+           │               │
+           ▼               ▼
+       SNA success      OTP required
+           │               │
+           │               ▼
+           │          OTP received
+           │               │
+           │               ▼
+           │          Verify OTP
+           │               │
+           └───────┬───────┘
+                   ▼
+             Authentication
+                complete
+```
+
+The demo keeps SDK calls in `MainActivity.kt` and keeps the Compose UI focused on displaying state and invoking actions.
+
+---
+
+## Authentication flows
+
+| Flow | Description |
 |---|---|
-| **SNA (Silent Network Authentication)** | Device authenticates over the carrier's mobile data connection with no OTP at all, when supported. |
-| **SNA → OTP fallback** | If SNA isn't available, OTPless automatically drops down to a normal OTP send and tells the app via a `FALLBACK_TRIGGERED` event. |
-| **SMS OTP** | A 4–6 digit code is texted to the phone number; the SDK can auto-read and auto-submit it via the SMS Retriever API. |
-| **WhatsApp OTP** | Same as SMS OTP, delivered via WhatsApp instead. |
-| **OTP verification** | The code (auto-read or manually typed) is submitted back to OTPless to complete the login. |
+| **SNA** | Authenticates the device through the carrier's mobile-data connection without requiring the user to enter an OTP, when SNA is supported and available. |
+| **SNA → OTP** | Attempts SNA first. If SNA is unavailable, the SDK falls back to OTP. |
+| **SMS OTP** | Sends an OTP to the user's phone number through SMS. |
+| **WhatsApp OTP** | Sends an OTP to the user's phone number through WhatsApp. |
+| **OTP verification** | Verifies the OTP automatically when it is read by the SDK, or manually when entered by the user. |
 
-Every one of these produces a stream of callback events (`SDK_READY`,
-`INITIATE`, `OTP_AUTO_READ`, `DELIVERY_STATUS`, `FALLBACK_TRIGGERED`,
-`VERIFY`, `ONETAP`, `FAILED`) which are rendered live in the **Event log**
-at the bottom of the screen — this is the fastest way to see exactly what
-the SDK is doing and in what order.
+### SDK events
+
+The demo displays the SDK callback events in the **Event log**.
+
+The main events used by the demo are:
+
+| Event | Description |
+|---|---|
+| `SDK_READY` | SDK initialization completed successfully. |
+| `FAILED` | SDK initialization failed. |
+| `INITIATE` | An authentication request has been accepted and processing has started. |
+| `OTP_AUTO_READ` | The SDK detected an OTP from an incoming SMS. |
+| `DELIVERY_STATUS` | OTPless reported the delivery status of an OTP. |
+| `FALLBACK_TRIGGERED` | SNA was unavailable and the SDK switched to OTP. |
+| `VERIFY` | The result of an OTP verification request. |
+| `ONETAP` | Authentication completed successfully. |
+
+The event log is useful when testing an integration because it shows the order of SDK callbacks together with their status codes and redacted payload information.
 
 ---
 
-## Project layout
+## Prerequisites
 
-```
-app/src/main/java/com/otpless/headlessdemo/
-  MainActivity.kt        SDK glue: initialize, build requests, handle responses
-  AuthUiState.kt          UI state model + local PendingMedium enum
-  OtplessEvents.kt         Log entry model, JSON redaction, error-code lookup
-  ui/DemoScreen.kt          The single Compose screen (all UI)
-app/src/main/res/xml/otpless_network_security_config.xml   SNA cleartext config
-app/src/main/AndroidManifest.xml
-```
+Before running the demo, make sure you have:
 
-Everything OTPless-specific lives in `MainActivity.kt`; the other files are
-supporting UI state, logging, and Compose layout.
+- Android Studio installed.
+- JDK 17 or later.
+- Android SDK API 37 installed.
+- An OTPless account and application.
+- A configured OTPless **App ID**.
+- A physical Android device for phone authentication testing.
+
+### Physical device requirement
+
+A physical device is required for the phone authentication flows demonstrated by this app.
+
+The Android emulator cannot provide the SIM/mobile-network environment required for:
+
+- SNA
+- SMS OTP
+- WhatsApp OTP
 
 ---
 
 ## OTPless dashboard setup
 
-Do this once, before the app can authenticate anyone.
+Complete the following configuration before running the demo.
 
-1. **Create an app** at the [OTPless dashboard](https://otpless.com/) and
-   copy its **APP_ID** from the left sidebar (**Copy App ID**, under
-   **Configurations**).
+### 1. Create or select an OTPless application
 
-   ![Dashboard sidebar with Copy App ID highlighted](docs/screenshots/dashboard-app-info.png)
+Open the [OTPless dashboard](https://otpless.com/) and create an application.
 
-2. Under the app's **Android configuration**, register:
-   - This app's **package name**: `com.otpless.headlessdemo`
-   - Its **SHA-256 signing certificate fingerprint** — get it by running:
-     ```bash
-     ./gradlew signingReport
-     ```
-     (do this for both your debug and release keystores, and register both)
+Copy the application's **APP_ID** from the left sidebar under **Configurations → Copy App ID**.
 
-3. **Enable the channels** you want to test, under **Configurations →
-   Channels**. For phone number auth, pick **OTP** as the verification
-   method and check **Silent Network Auth**, **SMS**, and **WhatsApp**
-   under delivery channels. A channel that isn't enabled here will fail
-   with error `4003` ("This channel is not enabled for this app") even if
-   the code is correct.
+![Dashboard sidebar with Copy App ID highlighted](docs/screenshots/dashboard-app-info.png)
 
-   ![Phone number channel configuration — OTP method with Silent Network Auth, SMS and WhatsApp enabled](docs/screenshots/dashboard-channels.png)
+Keep the App ID available for the local setup described in [Run the demo](#run-the-demo).
 
-4. If SNA is enabled, no extra dashboard step is required beyond enabling
-   the channel — see the [network security config](#2-manifest--network-security-config)
-   note below for why the app needs a cleartext traffic exception for it.
+### 2. Configure the Android application
+
+Under the application's **Android configuration**, register:
+
+- **Package name:** `com.otpless.headlessdemo`
+- **SHA-256 signing certificate fingerprint**
+
+You can obtain the signing fingerprints with:
+
+```bash
+./gradlew signingReport
+```
+
+Register the fingerprints for the builds you intend to test. For example, register both the debug and release fingerprints when both are used.
+
+### 3. Enable authentication channels
+
+Under **Configurations → Channels**, configure the phone-number authentication channel.
+
+For this demo, enable:
+
+- **OTP** as the verification method
+- **Silent Network Auth**
+- **SMS**
+- **WhatsApp**
+
+![Phone number channel configuration — OTP method with Silent Network Auth, SMS and WhatsApp enabled](docs/screenshots/dashboard-channels.png)
+
+> **Important:** A channel that is not enabled in the OTPless dashboard can fail even when the application code is correct. For example, error `4003` indicates that the requested channel is not enabled for the application.
+
+### 4. SNA configuration
+
+If SNA is enabled for the application, there is no additional dashboard configuration required beyond enabling the channel.
+
+The Android application also needs the network security configuration described in [Configure Android network security](#3-configure-android-network-security).
 
 ---
 
-## Quick start
+## Run the demo
+
+### 1. Create `local.properties`
+
+Copy the example configuration:
 
 ```bash
 cp local.properties.example local.properties
-# then edit local.properties:
-#   OTPLESS_APP_ID=your_real_app_id
-#   sdk.dir=/path/to/your/Android/sdk
+```
 
-export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"  # or any JDK 17+
+Then edit `local.properties`:
+
+```properties
+OTPLESS_APP_ID=your_real_app_id
+sdk.dir=/path/to/your/Android/sdk
+```
+
+`local.properties` is git-ignored. **Do not commit your real App ID to source control.**
+
+### 2. Configure Java
+
+The project requires JDK 17 or later.
+
+For example, on macOS with Android Studio's bundled JDK:
+
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+```
+
+If your JDK is installed elsewhere, set `JAVA_HOME` to that installation.
+
+### 3. Build the application
+
+```bash
 ./gradlew assembleDebug
 ```
 
-`local.properties` is git-ignored — never commit your real `APP_ID`. All
-phone/OTP/SNA flows require a **real device** (the emulator has no SIM).
+Install the generated debug APK on a physical Android device.
 
 ---
 
-## Step-by-step integration walkthrough
+## Test the authentication flows
 
-This section walks through the integration in the order it actually
-executes, quoting the real code from this project.
+Once the application is installed and the SDK has initialized successfully, the **SDK Ready** status should be shown in the application.
 
-### 1. Add the SDK dependency
+### Test SNA
 
-`app/build.gradle.kts`:
+SNA uses the device's cellular network.
+
+1. Use a physical Android device.
+2. Turn **Wi-Fi off**.
+3. Keep **mobile data enabled**.
+4. Enter the phone number and country code.
+5. Tap **SNA → OTP**.
+6. Watch the Event log for the SDK response.
+
+When SNA is successful, the flow can complete without an OTP.
+
+A typical successful flow includes:
+
+```text
+INITIATE
+ONETAP
+```
+
+If SNA is unavailable, the SDK can trigger:
+
+```text
+FALLBACK_TRIGGERED
+```
+
+The demo then continues with OTP verification.
+
+### Test SMS OTP
+
+1. Enter the country code.
+2. Enter the phone number.
+3. Tap **SMS OTP**.
+4. Wait for the SMS.
+5. If supported, the SDK detects the OTP automatically and the demo submits it for verification.
+6. Otherwise, enter the OTP manually and tap **Verify**.
+
+The event log shows the callbacks generated during the flow.
+
+### Test WhatsApp OTP
+
+1. Make sure WhatsApp is installed on the test device.
+2. Enter the country code.
+3. Enter the phone number.
+4. Tap **WhatsApp OTP**.
+5. Wait for the OTP.
+6. Enter the OTP and tap **Verify** when manual verification is required.
+
+### Test SNA fallback
+
+To test the fallback path:
+
+1. Use a device and network configuration where SNA is unavailable.
+2. Start the **SNA → OTP** flow.
+3. Watch for the `FALLBACK_TRIGGERED` event.
+4. The demo changes the authentication state to OTP.
+5. Complete the flow using the received OTP.
+
+The exact availability of SNA depends on the device, carrier, network connection, and configured authentication environment.
+
+---
+
+## Understanding the demo screen
+
+The application contains four main areas.
+
+### Status
+
+The Status card shows:
+
+- Whether the SDK is ready.
+- Whether an authentication request is in progress.
+- The current authentication type.
+- The current delivery channel.
+- Authentication result.
+- The latest error, when applicable.
+- A **Cancel** action for a request that is taking too long.
+
+### Phone authentication
+
+The Phone authentication card contains:
+
+- Country code
+- Phone number
+- **SNA → OTP**
+- **SMS OTP**
+- **WhatsApp OTP**
+
+The authentication buttons remain disabled until the SDK has reported `SDK_READY`.
+
+### OTP verification
+
+The Verify OTP card appears when the current authentication flow requires OTP verification.
+
+The OTP can be:
+
+- Detected automatically through the SDK's SMS Retriever integration.
+- Entered manually by the user.
+
+### Event log
+
+The Event log displays SDK callbacks in real time.
+
+Each entry includes:
+
+- Event type
+- Status code
+- Timestamp
+- Redacted response information
+
+The demo also provides **Share logs**, which exports the redacted log as a text file for sharing with a developer or tester.
+
+---
+
+# Integrating OTPless into your Android app
+
+The following section describes the integration used by this demo and can be used as a reference when adding OTPless Headless SDK to another Android application.
+
+## 1. Add the SDK dependency
+
+Add the OTPless Headless SDK to `app/build.gradle.kts`:
 
 ```kotlin
 dependencies {
@@ -143,10 +377,13 @@ dependencies {
 }
 ```
 
-The app's OTPless `APP_ID` is injected as a `BuildConfig` field at build
-time, read from `local.properties` (or an `OTPLESS_APP_ID` environment
-variable for CI) so the real ID never has to be committed to source
-control:
+---
+
+## 2. Configure the App ID
+
+The demo reads the OTPless App ID from `local.properties` or an environment variable and exposes it through `BuildConfig`.
+
+This keeps the real App ID out of source control.
 
 ```kotlin
 val otplessAppId: String =
@@ -156,30 +393,41 @@ val otplessAppId: String =
 
 android {
     defaultConfig {
-        buildConfigField("String", "OTPLESS_APP_ID", "\"$otplessAppId\"")
+        buildConfigField(
+            "String",
+            "OTPLESS_APP_ID",
+            "\"$otplessAppId\""
+        )
     }
+
     buildFeatures {
         buildConfig = true
     }
 }
 ```
 
-### 2. Manifest & network security config
+The SDK is then initialized using:
 
-`AndroidManifest.xml` points the application at a custom network security
-config:
+```kotlin
+BuildConfig.OTPLESS_APP_ID
+```
+
+---
+
+## 3. Configure Android network security
+
+SNA requires the application to permit the network traffic used by the carrier authentication flow.
+
+The demo points the Android application to a custom network security configuration.
+
+In `AndroidManifest.xml`:
 
 ```xml
 <application
     android:networkSecurityConfig="@xml/otpless_network_security_config">
 ```
 
-**Why this is needed:** SNA works by the device making a plain HTTP request
-over the *cellular data* path. The carrier's gateway transparently
-intercepts and redirects that request to inject a subscriber identifier —
-the redirect target is chosen by the carrier at request time, so it can't
-be pinned to a fixed domain allowlist in advance. That's why the config
-permits cleartext traffic at the base level:
+The demo's `res/xml/otpless_network_security_config.xml` contains:
 
 ```xml
 <network-security-config>
@@ -191,16 +439,21 @@ permits cleartext traffic at the base level:
 </network-security-config>
 ```
 
-If your own security review requires a tighter, domain-scoped policy,
-check OTPless support for the carrier gateway domains applicable to your
-target markets and replace this with per-domain `<domain-config>` entries.
+### Why is this required?
 
-If you don't need to support SNA at all, you can drop this file and the
-manifest reference to it.
+SNA uses the device's cellular data path. The carrier gateway can handle the request dynamically, so the demo allows the required cleartext traffic at the base configuration level.
 
-### 3. Initialize the SDK
+If your application has stricter network-security requirements, review this configuration with your security team and check with OTPless support for the appropriate configuration for your target markets and carriers.
 
-Done once, in `MainActivity.onCreate()`:
+If your application does **not** use SNA, this network security configuration and its manifest reference can be removed.
+
+---
+
+## 4. Initialize the SDK
+
+Initialize the SDK once, typically during `Activity` startup.
+
+The demo performs initialization from `MainActivity.onCreate()`:
 
 ```kotlin
 lifecycleScope.launch {
@@ -212,60 +465,97 @@ lifecycleScope.launch {
 }
 ```
 
-Key points:
+### Important points
 
-- `initialize()` is a **suspend function** in SDK `0.9.0`, so it's launched
-  inside `lifecycleScope.launch { }`.
-- The response **callback is passed directly into `initialize()`**, rather
-  than registered afterward with a separate call. This matters: if the
-  callback is registered too late, the SDK can silently miss delivering
-  its very first `SDK_READY` (or `FAILED`) event, leaving the app stuck
-  with no way to know initialization finished.
-- The same `callback` (`onOtplessResponse`, [see below](#6-handle-the-response-callback))
-  is reused for **every** subsequent request too — it's a single funnel for
-  all SDK events, not just initialization.
-- Until `SDK_READY` arrives, `AuthUiState.sdkReady` stays `false` and every
-  action button in the UI is disabled (see `DemoScreen.kt`), so users can't
-  trigger a request before the SDK is actually ready.
+The `initialize()` function is a suspend function in SDK `0.9.0`, so the demo calls it from a coroutine.
 
-### 4. Build a request
-
-Every flow starts from an `OtplessRequest`, configured with only the
-fields relevant to that flow:
+The callback is supplied directly to `initialize()`:
 
 ```kotlin
-// SNA (auto-detect) — just a phone number, no delivery channel forced
-OtplessRequest().apply {
-    setPhoneNumber(number = phone, countryCode = countryCode)
-}
+callback = ::onOtplessResponse
+```
 
-// SMS OTP — force the channel
+The same callback is reused for subsequent requests.
+
+Registering the callback as part of initialization ensures that the application can receive the initial `SDK_READY` or `FAILED` event.
+
+The demo does not enable authentication actions until it receives `SDK_READY`.
+
+---
+
+## 5. Create an authentication request
+
+Authentication requests are created using `OtplessRequest`.
+
+### SNA / automatic authentication
+
+For the automatic authentication flow, the demo provides the phone number and country code without forcing a delivery channel:
+
+```kotlin
 OtplessRequest().apply {
-    setPhoneNumber(number = phone, countryCode = countryCode)
+    setPhoneNumber(
+        number = phone,
+        countryCode = countryCode
+    )
+}
+```
+
+### SMS OTP
+
+To explicitly request SMS:
+
+```kotlin
+OtplessRequest().apply {
+    setPhoneNumber(
+        number = phone,
+        countryCode = countryCode
+    )
     setDeliveryChannel("SMS")
 }
+```
 
-// WhatsApp OTP — force the channel
+### WhatsApp OTP
+
+To explicitly request WhatsApp:
+
+```kotlin
 OtplessRequest().apply {
-    setPhoneNumber(number = phone, countryCode = countryCode)
+    setPhoneNumber(
+        number = phone,
+        countryCode = countryCode
+    )
     setDeliveryChannel("WHATSAPP")
 }
+```
 
-// OTP verification — same phone number plus the code
+### OTP verification
+
+OTP verification uses the same phone number and country code together with the OTP:
+
+```kotlin
 OtplessRequest().apply {
-    setPhoneNumber(number = lastPhoneNumber, countryCode = lastCountryCode)
+    setPhoneNumber(
+        number = lastPhoneNumber,
+        countryCode = lastCountryCode
+    )
     setOtp(otp)
 }
 ```
 
-See `MainActivity.startAutoAuth()`, `startSmsOtp()`, `startWhatsAppOtp()`
-and `verifyOtp()` for the exact call sites.
+In the demo, these requests are created by:
 
-### 5. Send the request
+- `startAutoAuth()`
+- `startSmsOtp()`
+- `startWhatsAppOtp()`
+- `verifyOtp()`
 
-All requests funnel through one helper, `runRequest()`, which sets UI
-state (busy indicator, status text) and calls the suspend `start()`
-function:
+---
+
+## 6. Start the request
+
+The demo routes authentication requests through a common `runRequest()` helper.
+
+A simplified version is:
 
 ```kotlin
 private fun runRequest(
@@ -273,7 +563,12 @@ private fun runRequest(
     medium: PendingMedium,
     statusMessage: String
 ) {
-    uiState = uiState.copy(isBusy = true, statusMessage = statusMessage, ...)
+    uiState = uiState.copy(
+        isBusy = true,
+        statusMessage = statusMessage,
+        // ...
+    )
+
     armResponseTimeout()
 
     lifecycleScope.launch {
@@ -285,242 +580,537 @@ private fun runRequest(
 }
 ```
 
-`start()` doesn't return the result directly — it returns once the request
-has been dispatched, and the **actual outcome arrives asynchronously
-through the same `onOtplessResponse` callback** used everywhere else.
-That's why every UI update in this app happens inside that one callback
-function, not after the `start()` call.
+`start()` dispatches the request. The result is delivered asynchronously through the callback.
 
-`armResponseTimeout()` is this app's own addition, not an SDK requirement:
-it's a 45-second watchdog that surfaces a friendly message if OTPless
-never calls back at all (e.g. a channel whose auto-detect registration
-isn't fully configured on the OTPless/Meta side yet). It's cancelled the
-moment any event does arrive.
+This means application state should be updated from the SDK callback rather than assuming that the `start()` call itself represents the authentication result.
 
-### 6. Handle the response callback
+### Demo timeout
 
-This is the heart of the integration — one function,
-`onOtplessResponse(response: OtplessResponse)`, handles **every** event
-from **every** flow. `OtplessResponse` has exactly three fields:
+The demo also uses a 45-second watchdog:
 
-```kotlin
-response.responseType  // ResponseTypes enum — what kind of event this is
-response.statusCode    // Int? — HTTP-style status, e.g. 200
-response.response      // JSONObject? — the raw payload; its exact keys
-                        // aren't fixed in the SDK's type system, so this
-                        // app reads them defensively via a small
-                        // `optField(key)` extension (OtplessEvents.kt)
-                        // instead of assuming a field always exists.
+```text
+armResponseTimeout()
 ```
 
-The callback switches on `response.responseType`:
+This is **demo application logic, not an OTPless SDK requirement**.
 
-| `ResponseTypes` | When it fires | What this app does |
-|---|---|---|
-| `SDK_READY` | Initialization finished successfully | Marks `sdkReady = true`, enables the UI |
-| `FAILED` | Initialization failed | Shows the error, `sdkReady` stays `false` |
-| `INITIATE` | A request (SNA/SMS/WhatsApp/verify) was accepted and is in progress | Reads `authType` and `deliveryChannel` from the JSON payload to decide what UI to show next |
-| `OTP_AUTO_READ` | The SMS Retriever API auto-detected an OTP from an incoming SMS | Reads the `otp` field internally and **automatically calls `verifyOtp()` with it** — see below |
-| `DELIVERY_STATUS` | OTPless confirms whether the SMS/WhatsApp message was actually delivered | Updates the status message |
-| `FALLBACK_TRIGGERED` | SNA wasn't available (e.g. Wi-Fi on, unsupported carrier) and OTPless fell back to sending an OTP instead | Flips local `authType` to `"OTP"` so the Verify OTP UI section appears |
-| `VERIFY` | Result of an OTP verification attempt | `statusCode == 200` → mark authenticated; otherwise show the mapped error |
-| `ONETAP` | Authentication fully completed (may follow `VERIFY`, or arrive directly for SNA) | Marks `isAuthenticated = true`, reads `userId` from the payload |
+It gives the user a visible timeout message if no SDK callback is received within the configured period.
 
-Excerpt (`MainActivity.kt`):
+The watchdog is cancelled when an SDK event arrives.
+
+---
+
+## 7. Handle SDK responses
+
+The callback is the central part of the integration:
+
+```kotlin
+private fun onOtplessResponse(response: OtplessResponse) {
+    // Handle SDK event
+}
+```
+
+The response provides:
+
+```kotlin
+response.responseType
+response.statusCode
+response.response
+```
+
+Where:
+
+- `responseType` identifies the SDK event.
+- `statusCode` contains the status associated with the event.
+- `response` contains the event payload as a `JSONObject`.
+
+Because the payload fields can differ between event types, the demo reads optional values defensively.
+
+### Response handling
+
+The demo handles the main response types as follows:
+
+| Response type | Demo behavior |
+|---|---|
+| `SDK_READY` | Marks the SDK as ready and enables authentication controls. |
+| `FAILED` | Displays the initialization error and keeps the SDK unavailable. |
+| `INITIATE` | Reads `authType` and `deliveryChannel` to determine the current authentication flow. |
+| `OTP_AUTO_READ` | Reads the OTP internally and starts OTP verification automatically. |
+| `DELIVERY_STATUS` | Updates the UI with OTP delivery information. |
+| `FALLBACK_TRIGGERED` | Changes the local authentication state to OTP so the user can complete verification. |
+| `VERIFY` | Treats `statusCode == 200` as successful OTP verification; otherwise displays the mapped error. |
+| `ONETAP` | Marks authentication as complete and reads `userId` when available. |
+
+A simplified callback looks like this:
 
 ```kotlin
 private fun onOtplessResponse(response: OtplessResponse) {
     val type = response.responseType
     val code = response.statusCode
 
-    appendLog(type?.name ?: "UNKNOWN", code, response.toLogDetail())
+    appendLog(
+        type?.name ?: "UNKNOWN",
+        code,
+        response.toLogDetail()
+    )
 
     runOnUiThread {
         when (type) {
             ResponseTypes.SDK_READY -> {
-                uiState = uiState.copy(sdkReady = true, isBusy = false, ...)
+                uiState = uiState.copy(
+                    sdkReady = true,
+                    isBusy = false
+                    // ...
+                )
             }
+
             ResponseTypes.INITIATE -> {
                 val authType = response.optField("authType")
-                val deliveryChannel = response.optField("deliveryChannel")
-                uiState = uiState.copy(authType = authType, deliveryChannel = deliveryChannel, ...)
+                val deliveryChannel =
+                    response.optField("deliveryChannel")
+
+                uiState = uiState.copy(
+                    authType = authType,
+                    deliveryChannel = deliveryChannel
+                    // ...
+                )
             }
+
             ResponseTypes.OTP_AUTO_READ -> {
                 val autoOtp = response.optField("otp")
-                if (!autoOtp.isNullOrBlank()) verifyOtp(autoOtp)
+
+                if (!autoOtp.isNullOrBlank()) {
+                    verifyOtp(autoOtp)
+                }
             }
+
             ResponseTypes.VERIFY -> {
-                if (code == 200) uiState = uiState.copy(isAuthenticated = true, ...)
-                else uiState = uiState.copy(lastError = describeErrorCode(errorCode), ...)
+                if (code == 200) {
+                    uiState = uiState.copy(
+                        isAuthenticated = true
+                        // ...
+                    )
+                } else {
+                    uiState = uiState.copy(
+                        lastError = describeErrorCode(
+                            response.optField("errorCode")?.toIntOrNull()
+                        )
+                        // ...
+                    )
+                }
             }
+
             ResponseTypes.ONETAP -> {
                 val userId = response.optField("userId")
-                uiState = uiState.copy(isAuthenticated = true, userId = userId, ...)
+
+                uiState = uiState.copy(
+                    isAuthenticated = true,
+                    userId = userId
+                    // ...
+                )
             }
-            // FAILED, DELIVERY_STATUS, FALLBACK_TRIGGERED handled similarly
-            else -> { /* ignored */ }
+
+            // FAILED, DELIVERY_STATUS and
+            // FALLBACK_TRIGGERED are handled similarly.
+
+            else -> {
+                // Ignore events that are not required by the UI.
+            }
         }
     }
 }
 ```
 
-**Important nuance implemented here:** `OTP_AUTO_READ` fires an automatic
-verification in the background. If the user also manually types and
-submits the same code, that would submit a transaction token OTPless has
-already consumed, producing a confusing "invalid token" error. This app
-guards against that with an `otpVerifyInFlight` marker checked in
-`verifyOtp()` — worth keeping in mind if you build your own UI around
-auto-read.
+### Automatic OTP verification
 
-### 7. Verify an OTP
+When `OTP_AUTO_READ` is received, the demo automatically starts verification.
 
-`verifyOtp(otp: String)` builds a request with the same identifier (phone
-or email) used to start the flow, plus the code, and sends it through the
-same `runRequest()` → `OtplessSDK.start()` path as every other request:
+The demo also prevents the same OTP from being submitted more than once while verification is already in progress. This is important because automatic verification and a user's manual submission can otherwise race with each other.
+
+---
+
+## 8. Verify an OTP
+
+The demo's OTP verification function validates the local state before sending the OTP:
 
 ```kotlin
 private fun verifyOtp(otp: String) {
-    if (otp.isBlank()) { /* show inline error */ return }
-    if (uiState.isAuthenticated) return          // already done, ignore
-    if (otpVerifyInFlight == otp) return          // duplicate submission
+    if (otp.isBlank()) {
+        // Show inline error
+        return
+    }
+
+    if (uiState.isAuthenticated) {
+        return
+    }
+
+    if (otpVerifyInFlight == otp) {
+        return
+    }
 
     otpVerifyInFlight = otp
 
     val request = OtplessRequest().apply {
-        setPhoneNumber(number = lastPhoneNumber, countryCode = lastCountryCode)
+        setPhoneNumber(
+            number = lastPhoneNumber,
+            countryCode = lastCountryCode
+        )
         setOtp(otp)
     }
 
-    runRequest(request, medium = uiState.pendingMedium ?: PendingMedium.PHONE, "Verifying OTP")
+    runRequest(
+        request = request,
+        medium = uiState.pendingMedium ?: PendingMedium.PHONE,
+        statusMessage = "Verifying OTP"
+    )
 }
 ```
 
-The result comes back as a `VERIFY` (and often a following `ONETAP`) event
-in the same callback described above.
+The result is returned through the same response callback.
 
-### 8. The UI layer (Compose)
-
-`ui/DemoScreen.kt` is a plain, stateless Compose screen — it takes the
-current `AuthUiState`, the event log list, and a set of callback lambdas
-(`onStartAuto`, `onSendSmsOtp`, `onSendWhatsAppOtp`, `onVerifyOtp`,
-`onCancel`, `onShareLogs`), and renders:
-
-- A **Status card** — SDK ready/not-ready indicator, busy spinner, current
-  `authType` / `deliveryChannel`, authentication result, last error, and a
-  **Cancel** button (bails out of a stuck request instead of waiting the
-  full 45s watchdog).
-- A **Phone authentication card** — country code + phone number fields and
-  the **SNA → OTP**, **SMS OTP**, and **WhatsApp OTP** buttons.
-- A **Verify OTP card** — only shown once `authType == "OTP"` (set either
-  from an `INITIATE` event for SMS/WhatsApp, or from `FALLBACK_TRIGGERED`
-  when SNA drops down to OTP). Auto-fills from `OTP_AUTO_READ` via a
-  `LaunchedEffect` keyed on a sequence counter, so it re-syncs even if the
-  same code is detected twice.
-- An **Event log** — every callback event, newest first, with a **Share
-  logs** button that exports the whole log as a text file via
-  `FileProvider` for sending to a developer/tester.
-
-None of this layer talks to the SDK directly — it only reads `AuthUiState`
-and invokes the lambdas `MainActivity` wires up, keeping all SDK calls in
-one place.
+A successful verification commonly produces a `VERIFY` event and may be followed by `ONETAP`.
 
 ---
 
-## Error handling
+## 9. Connect the SDK to your UI
 
-Every response carries an optional `statusCode` and, inside the JSON
-payload, an optional `errorCode` / `errorMessage`. `describeErrorCode()`
-(`OtplessEvents.kt`) maps the documented OTPless error codes to a
-human-readable string, e.g.:
+The demo uses Jetpack Compose for its UI.
+
+`DemoScreen.kt` is a stateless UI layer that receives:
+
+- Current `AuthUiState`
+- Event log entries
+- Authentication action callbacks
+
+For example:
+
+```text
+onStartAuto
+onSendSmsOtp
+onSendWhatsAppOtp
+onVerifyOtp
+onCancel
+onShareLogs
+```
+
+The UI does not call the OTPless SDK directly.
+
+Instead:
+
+```text
+Compose UI
+    │
+    │ user action
+    ▼
+MainActivity
+    │
+    │ OtplessRequest
+    ▼
+OTPless SDK
+    │
+    │ callback
+    ▼
+MainActivity
+    │
+    │ update AuthUiState
+    ▼
+Compose UI
+```
+
+This keeps SDK-specific logic in one place while allowing the UI to remain focused on application state and presentation.
+
+---
+
+# Error handling
+
+OTPless responses can include:
+
+- A `statusCode`
+- An `errorCode`
+- An `errorMessage`
+
+The demo maps known error codes to user-friendly messages through `describeErrorCode()`.
+
+For example:
 
 ```kotlin
 fun describeErrorCode(code: Int?): String = when (code) {
-    4003 -> "This channel is not enabled for this app in the OTPless dashboard"
-    7118 -> "Incorrect OTP"
-    7303 -> "OTP has expired"
-    401  -> "Unauthorized — invalid APP_ID"
-    ...
-    else -> "Unrecognized error code ($code) — see OTPless error-codes reference"
+    4003 ->
+        "This channel is not enabled for this app in the OTPless dashboard"
+
+    7118 ->
+        "Incorrect OTP"
+
+    7303 ->
+        "OTP has expired"
+
+    401 ->
+        "Unauthorized — invalid APP_ID"
+
+    else ->
+        "Unrecognized error code ($code) — see OTPless error-codes reference"
 }
 ```
 
-Reference: https://otpless.com/docs/frontend-sdks/app-sdks/android/new/references/error-codes
+For the complete list of documented error codes, see:
+
+https://otpless.com/docs/frontend-sdks/app-sdks/android/new/references/error-codes
 
 ---
 
-## Security notes
+# Troubleshooting
 
-- **OTPs and tokens are never logged or shown.** `OtplessResponse.response`
-  is walked generically in `toLogDetail()`, and any JSON key containing
-  `otp`, `token`, `secret`, `password`, `code`, or `pin`
-  (case-insensitive) is replaced with `***redacted***` before it's
-  appended to the on-screen/exported log.
-- `OTP_AUTO_READ` extracts the OTP internally to auto-submit verification,
-  but the raw value is never stored in UI state or written to the log.
-- The `APP_ID` is **not committed** — it's read from git-ignored
-  `local.properties` or an env var (see [Quick start](#quick-start)), and
-  the exported debug log only ever shows a masked version of it
-  (`ab****yz`).
+## SDK does not become ready
 
----
+Check the following:
 
-## Testing each flow
+1. The `OTPLESS_APP_ID` is correct.
+2. The App ID belongs to the OTPless application you configured.
+3. The Android package name is registered in the OTPless dashboard.
+4. The correct SHA-256 signing certificate is registered.
+5. The application has network connectivity.
 
-All phone/OTP/SNA flows require a **real device** — the emulator has no
-SIM and can't receive SMS/WhatsApp or attempt SNA.
-
-- **SNA**: tap **"SNA → OTP"**. The device must be on **mobile data, with
-  Wi-Fi off**. Success shows an `INITIATE` event with
-  `authType=SILENT_AUTH` followed by `ONETAP`. If SNA isn't available
-  you'll instead see `FALLBACK_TRIGGERED`, and the flow continues as a
-  normal OTP send.
-- **SMS OTP**: enter country code + phone number, tap **"SMS OTP"**, wait
-  for the SMS, then either let `OTP_AUTO_READ` auto-verify it, or type it
-  and tap **"Verify"**.
-- **WhatsApp OTP**: same as SMS, but tap **"WhatsApp OTP"** — WhatsApp must
-  be installed on the test device.
-- The **Event log** at the bottom shows every callback with a timestamp,
-  status code, and redacted JSON payload — this is the best place to
-  debug an unexpected result.
+The application waits for `SDK_READY` before enabling authentication actions.
 
 ---
 
-## Where to add dashboard screenshots
+## Error `4003` — channel is not enabled
 
-Two dashboard screenshots are already embedded above, in
-`docs/screenshots/`:
+Verify the OTPless dashboard configuration.
 
-- `dashboard-app-info.png` — sidebar with **Copy App ID**
-- `dashboard-channels.png` — phone number channel configuration
+Under **Configurations → Channels**, make sure the channel you are testing is enabled for the application.
 
-Still missing (optional, but would help a customer configuring this for
-the first time): a screenshot of the **Android configuration** screen
-where the package name and SHA-256 fingerprint are registered (step 2
-above). If you add one, save it as `docs/screenshots/dashboard-android-config.png`
-and add this line right after step 2 in
-[OTPless dashboard setup](#otpless-dashboard-setup):
+For this demo, the relevant channels are:
+
+- Silent Network Auth
+- SMS
+- WhatsApp
+
+---
+
+## SNA does not work
+
+Check:
+
+- You are using a physical device.
+- Wi-Fi is turned off.
+- Mobile data is enabled.
+- The carrier/network supports the SNA flow.
+- SNA is enabled for the application in the OTPless dashboard.
+- The application's network security configuration is present.
+
+If SNA is unavailable, the demo may receive `FALLBACK_TRIGGERED` and continue with OTP.
+
+---
+
+## SMS OTP is not received
+
+Check:
+
+- The phone number and country code are correct.
+- SMS is enabled for the application in the OTPless dashboard.
+- The device can receive SMS messages.
+- The test device is a physical device rather than an emulator.
+
+If the OTP arrives but is not automatically detected, you can enter it manually and use **Verify**.
+
+---
+
+## WhatsApp OTP is not received
+
+Check:
+
+- WhatsApp is installed on the test device.
+- The phone number is associated with the expected WhatsApp account.
+- WhatsApp is enabled in the OTPless dashboard.
+- The phone number and country code are correct.
+
+---
+
+## OTP verification fails
+
+Check:
+
+- The OTP is entered correctly.
+- The OTP has not expired.
+- The OTP has not already been consumed by an earlier verification attempt.
+
+The demo prevents duplicate automatic/manual submissions where possible.
+
+For an expired OTP, see the OTPless error-code reference.
+
+---
+
+## No callback is received
+
+The demo includes a 45-second timeout to surface this situation.
+
+If the timeout occurs:
+
+1. Check the Event log for any earlier SDK events.
+2. Verify the App ID.
+3. Verify the dashboard configuration.
+4. Verify the selected authentication channel.
+5. Check the device's network connection.
+6. Confirm that the physical device is suitable for the selected flow.
+
+---
+
+# Security considerations
+
+The demo is designed to avoid exposing authentication secrets in its event log.
+
+### OTPs and tokens are redacted
+
+The event logger recursively inspects SDK response JSON.
+
+Keys containing values such as:
+
+```text
+otp
+token
+secret
+password
+code
+pin
+```
+
+are redacted before the response is displayed or exported.
+
+The log therefore contains:
+
+```text
+***redacted***
+```
+
+instead of the sensitive value.
+
+### Automatically read OTPs are not stored in UI state
+
+When `OTP_AUTO_READ` is received, the demo extracts the OTP only to start verification.
+
+The raw OTP is not written to the event log.
+
+### App ID handling
+
+The real OTPless App ID is read from:
+
+- `local.properties`, or
+- the `OTPLESS_APP_ID` environment variable.
+
+The App ID is not intended to be committed to source control.
+
+The exported event log also masks the App ID.
+
+> **Production note:** Review the demo's logging, network-security, secret-management, and error-reporting behavior against your application's security requirements before using the same approach in production.
+
+---
+
+# Project structure
+
+The main OTPless integration is contained in `MainActivity.kt`.
+
+```text
+app/src/main/java/com/otpless/headlessdemo/
+│
+├── MainActivity.kt
+│   └── SDK initialization, requests, callbacks and authentication flow
+│
+├── AuthUiState.kt
+│   └── UI state and local authentication state
+│
+├── OtplessEvents.kt
+│   └── Event logging, JSON redaction and error-code handling
+│
+└── ui/
+    └── DemoScreen.kt
+        └── Jetpack Compose UI
+```
+
+Android configuration:
+
+```text
+app/src/main/res/xml/
+└── otpless_network_security_config.xml
+
+app/src/main/
+└── AndroidManifest.xml
+```
+
+### Responsibility by component
+
+| Component | Responsibility |
+|---|---|
+| `MainActivity.kt` | OTPless SDK integration and authentication flow |
+| `AuthUiState.kt` | UI state representation |
+| `OtplessEvents.kt` | SDK event logging, redaction and error mapping |
+| `DemoScreen.kt` | Compose UI |
+| `otpless_network_security_config.xml` | Network configuration required by SNA |
+
+---
+
+# Dashboard screenshots
+
+The demo includes the following dashboard screenshots:
+
+### App ID configuration
+
+`docs/screenshots/dashboard-app-info.png`
+
+Shows where to find and copy the OTPless App ID.
+
+### Channel configuration
+
+`docs/screenshots/dashboard-channels.png`
+
+Shows the phone-number authentication configuration with OTP, Silent Network Auth, SMS and WhatsApp enabled.
+
+### Android application configuration
+
+For a customer-facing distribution of this README, it is recommended to also add a screenshot of the Android configuration screen showing where the package name and SHA-256 fingerprint are registered.
+
+Save it as:
+
+```text
+docs/screenshots/dashboard-android-config.png
+```
+
+Then add:
 
 ```markdown
 ![Android app configuration — package name and SHA-256 fingerprint](docs/screenshots/dashboard-android-config.png)
 ```
 
-It'll render automatically once the file exists at that path.
+Other useful screenshots may include:
 
-Other screenshots worth considering, if useful for your customer:
-- The dashboard's home/app list screen (so they know where to start)
-- A successful test login shown in the dashboard's logs/analytics view, to
-  confirm end-to-end delivery
+- The dashboard home/application list.
+- A successful test authentication in the dashboard logs or analytics view.
 
 ---
 
-## Build
+# Build
+
+To build the debug application:
 
 ```bash
-export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"  # or any JDK 17+
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 ./gradlew assembleDebug
 ```
 
-Requires `compileSdk`/`targetSdk` API 37 installed in your Android SDK
-(`sdk.dir` in `local.properties`); `minSdk` is 23 (current AndroidX
-Compose/Activity releases require 23+ even though the OTPless docs list 21
-as their floor).
+The project requires:
+
+- **JDK:** 17 or later
+- **compileSdk / targetSdk:** API 37
+- **minSdk:** 23
+
+The Android SDK location is configured through `sdk.dir` in `local.properties`.
+
+---
+
+## Next steps
+
+After successfully running this demo, you can use the integration patterns in `MainActivity.kt` as a reference for adding OTPless Headless Authentication to your own Android application.
+
+For the latest SDK documentation and integration guidance, refer to the official OTPless documentation:
+
+https://otpless.com/docs/frontend-sdks/app-sdks/android/new/headless/intro
