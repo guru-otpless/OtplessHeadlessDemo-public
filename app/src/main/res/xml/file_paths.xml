@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backs the FileProvider used to share exported debug logs (see
+  MainActivity.shareLogs()). Only the cache subfolder logs are written to is
+  exposed — nothing else in the app's storage is reachable through this.
+-->
+<paths>
+    <cache-path name="logs" path="logs/" />
+</paths>

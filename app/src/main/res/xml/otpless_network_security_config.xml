@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Silent Network Authentication (SNA) works by having the device make a plain
+  HTTP request over the *cellular data* path (not Wi-Fi). The mobile carrier's
+  gateway transparently intercepts that request and redirects it to inject a
+  subscriber/session identifier before it reaches OTPless. The redirect target
+  is chosen by the carrier at request time, so its host name cannot be listed
+  in advance — this is why SNA integrations generally need cleartext (HTTP)
+  traffic permitted rather than a fixed per-domain allowlist.
+
+  If your security review requires a tighter, domain-scoped policy, check the
+  current SNA guide (https://otpless.com/docs/knowledge-base/sna/sna-101) and
+  OTPless dashboard/support for the carrier gateway domains applicable to your
+  target markets, and replace the base-config below with per-domain
+  <domain-config> entries.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

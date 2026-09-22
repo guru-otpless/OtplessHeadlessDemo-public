@@ -1,0 +1,7 @@
+# Copy this file to local.properties (which is gitignored) and fill in your
+# real values. local.properties is read directly by app/build.gradle.kts.
+
+sdk.dir=/path/to/your/Android/sdk
+
+# Get this from the OTPless dashboard (Settings > App Info) after creating an app.
+OTPLESS_APP_ID=YOUR_OTPLESS_APP_ID
